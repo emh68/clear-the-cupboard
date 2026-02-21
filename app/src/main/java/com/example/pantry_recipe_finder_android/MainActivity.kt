@@ -1,6 +1,7 @@
 package com.example.pantry_recipe_finder_android
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,24 +32,44 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.example.pantry_recipe_finder_android.ui.theme.PantryrecipefinderandroidTheme
+import com.example.pantry_recipe_finder_android.api.RecipeClient
+import com.example.pantry_recipe_finder_android.model.Recipe
+import com.example.pantry_recipe_finder_android.ui.theme.ClearTheCupboardTheme
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+
 
 class MainActivity : ComponentActivity() {
+    private val client = HttpClient(Android) {
+        install(ContentNegotiation) {
+            json(Json {
+                // Prevent crashes if API adds unexpected fields
+                ignoreUnknownKeys = true
+                prettyPrint = true
+            })
+        }
+    }
+    private val recipeService = RecipeClient(client)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            PantryrecipefinderandroidTheme {
+            ClearTheCupboardTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    PantryApp()
+                    PantryApp(recipeService)
                 }
             }
         }
@@ -56,9 +77,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun PantryApp() {
+fun PantryApp(service: RecipeClient) {
     var ingredientList by remember { mutableStateOf(listOf<String>()) }
     var currentInput by remember { mutableStateOf("") }
+    var recipes by remember { mutableStateOf(listOf<Recipe>()) }
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -66,7 +89,6 @@ fun PantryApp() {
             .statusBarsPadding()
             .padding(16.dp)
     ) {
-//        Text("My Pantry", style = MaterialTheme.typography.headlineSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         Text(
             text = "My Pantry",
             modifier = Modifier.fillMaxWidth(),
@@ -76,7 +98,6 @@ fun PantryApp() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Input Area
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -101,7 +122,6 @@ fun PantryApp() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // List
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(ingredientList) { ingredient ->
                 Card(
@@ -135,14 +155,41 @@ fun PantryApp() {
                 }
             }
         }
-        // Search Button
         Button(
-            onClick = { /* API Call logic */ },
+            onClick = {
+                scope.launch {
+                    try {
+                        val query = ingredientList.joinToString(",") { it.trim() }
+                        val result = service.searchRecipes(query)
+                        recipes = result.results
+                    } catch (e: Exception) {
+                        Log.e("PantryApp", "Error fetching recipes", e)
+                    }
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 16.dp)
         ) {
             Text("Find Recipes")
+        }
+        // Temporary Testing Recipe List
+        LazyColumn {
+            items(recipes) { recipe ->
+                Card(
+                    modifier = Modifier
+                        .padding(vertical = 4.dp)
+                        .fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text(text = recipe.title, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "Have: ${recipe.usedIngredientCount} | Missing: ${recipe.missedIngredientCount}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
         }
     }
 }
