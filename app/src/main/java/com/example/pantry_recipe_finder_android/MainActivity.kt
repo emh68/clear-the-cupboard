@@ -38,6 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.example.pantry_recipe_finder_android.api.RecipeClient
 import com.example.pantry_recipe_finder_android.model.Recipe
 import com.example.pantry_recipe_finder_android.ui.theme.ClearTheCupboardTheme
@@ -47,7 +50,6 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-
 
 class MainActivity : ComponentActivity() {
     private val client = HttpClient(Android) {
@@ -69,7 +71,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    PantryApp(recipeService)
+                    AppNavigation(recipeService)
                 }
             }
         }
@@ -77,10 +79,40 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun PantryApp(service: RecipeClient) {
+fun AppNavigation(service: RecipeClient) {
+    val navController = rememberNavController()
+    // recipesState is defined for persistence when navigating from 'pantry' to 'recipes'
+    var recipesState by remember { mutableStateOf<List<Recipe>>(emptyList()) }
+
+    NavHost(
+        navController = navController,
+        startDestination = "pantry"
+    ) {
+        composable("pantry") {
+            PantryScreen(
+                service = service,
+                onRecipesLoaded = { loadedRecipes ->
+                    recipesState = loadedRecipes
+                    navController.navigate("recipes") {
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+
+        composable("recipes") {
+            RecipeListScreen(
+                recipes = recipesState,
+                onBack = { navController.popBackStack() }
+            )
+        }
+    }
+}
+
+@Composable
+fun PantryScreen(service: RecipeClient, onRecipesLoaded: (List<Recipe>) -> Unit) {
     var ingredientList by remember { mutableStateOf(listOf<String>()) }
     var currentInput by remember { mutableStateOf("") }
-    var recipes by remember { mutableStateOf(listOf<Recipe>()) }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -159,9 +191,12 @@ fun PantryApp(service: RecipeClient) {
             onClick = {
                 scope.launch {
                     try {
-                        val query = ingredientList.joinToString(",") { it.trim() }
-                        val result = service.searchRecipes(query)
-                        recipes = result.results
+                        val ingredientsQuery = ingredientList
+                            .filter { it.isNotBlank() }
+                            .joinToString(",") { it.trim() }
+                        val result = service.searchRecipes(ingredientsQuery)
+                        Log.d("pantryApp", "Loaded recipes count: ${result.results.size}")
+                        onRecipesLoaded(result.results)
                     } catch (e: Exception) {
                         Log.e("PantryApp", "Error fetching recipes", e)
                     }
@@ -173,23 +208,73 @@ fun PantryApp(service: RecipeClient) {
         ) {
             Text("Find Recipes")
         }
-        // Temporary Testing Recipe List
-        LazyColumn {
+    }
+}
+
+@Composable
+fun RecipeListScreen(
+    recipes: List<Recipe>,
+    onBack: () -> Unit
+) {
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Recipes",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier
+                .padding(all = 12.dp)
+
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        LazyColumn(modifier = Modifier.weight(1f)) {
             items(recipes) { recipe ->
                 Card(
                     modifier = Modifier
-                        .padding(vertical = 4.dp)
                         .fillMaxWidth()
+                        .padding(vertical = 4.dp)
                 ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Text(text = recipe.title, style = MaterialTheme.typography.titleMedium)
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "Have: ${recipe.usedIngredientCount} | Missing: ${recipe.missedIngredientCount}",
-                            style = MaterialTheme.typography.bodySmall
+                            text = recipe.title,
+                            style = MaterialTheme.typography.titleMedium
                         )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (recipe.usedIngredients.isNotEmpty()) {
+                            val usedNames = recipe.usedIngredients.joinToString(", ") { it.name }
+                            Text(
+                                text = "Have: $usedNames",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        if (recipe.missedIngredients.isNotEmpty()) {
+                            val missedNames =
+                                recipe.missedIngredients.joinToString(", ") { it.name }
+                            Text(
+                                text = "Missing: $missedNames",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
+        }
+
+        Button(
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Back to Pantry")
         }
     }
 }
