@@ -1,6 +1,7 @@
 package com.example.pantry_recipe_finder_android.api
 
 import com.example.pantry_recipe_finder_android.BuildConfig
+import com.example.pantry_recipe_finder_android.model.Recipe
 import com.example.pantry_recipe_finder_android.model.RecipeResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -19,10 +20,18 @@ class RecipeClient(private val client: HttpClient) {
             // to minimize API calls when clicking for recipe details
             parameter("fillIngredients", true)
             parameter("addRecipeInformation", true)
+            parameter("addRecipeInstructions", true)
             parameter("sort", "min-missing-ingredients")
             // Limits results to 10 recipes to prevent maximum use of quota 50 pts/day
             // each call is 1pt + .01 or .06 or whatever depending on the number of parameters used
             parameter("number", 10)
         }.body<RecipeResponse>()
+    }
+
+    // API endpoint for getting recipe instructions
+    suspend fun getRecipeInstructions(id: Int): Recipe {
+        return client.get("https://api.spoonacular.com/recipes/$id/information") {
+            parameter("apiKey", BuildConfig.SPOONACULAR_KEY)
+        }.body()
     }
 }

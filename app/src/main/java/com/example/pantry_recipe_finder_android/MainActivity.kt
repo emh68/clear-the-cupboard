@@ -12,10 +12,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -29,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +54,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+
 
 class MainActivity : ComponentActivity() {
     private val client = HttpClient(Android) {
@@ -76,205 +81,299 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
 
-@Composable
-fun AppNavigation(service: RecipeClient) {
-    val navController = rememberNavController()
-    // recipesState is defined for persistence when navigating from 'pantry' to 'recipes'
-    var recipesState by remember { mutableStateOf<List<Recipe>>(emptyList()) }
-
-    NavHost(
-        navController = navController,
-        startDestination = "pantry"
-    ) {
-        composable("pantry") {
-            PantryScreen(
-                service = service,
-                onRecipesLoaded = { loadedRecipes ->
-                    recipesState = loadedRecipes
-                    navController.navigate("recipes") {
-                        launchSingleTop = true
-                    }
-                }
-            )
-        }
-
-        composable("recipes") {
-            RecipeListScreen(
-                recipes = recipesState,
-                onBack = { navController.popBackStack() }
-            )
-        }
+    override fun onDestroy() {
+        super.onDestroy()
+        client.close()
     }
-}
 
-@Composable
-fun PantryScreen(service: RecipeClient, onRecipesLoaded: (List<Recipe>) -> Unit) {
-    var ingredientList by remember { mutableStateOf(listOf<String>()) }
-    var currentInput by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
+    // Creates navigation graph to navigate between screens
+    @Composable
+    fun AppNavigation(service: RecipeClient) {
+        val navController = rememberNavController()
+        // recipesState is defined for persistence when navigating from 'pantry' to 'recipes'
+        var recipesState by remember { mutableStateOf<List<Recipe>>(emptyList()) }
+        var selectedRecipe by remember { mutableStateOf<Recipe?>(null) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "My Pantry",
-            modifier = Modifier.fillMaxWidth(),
-            style = MaterialTheme.typography.headlineSmall,
-            textAlign = TextAlign.Center
-        )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        NavHost(
+            navController = navController,
+            startDestination = "pantry"
+        ) {
+            composable("pantry") {
+                PantryScreen(
+                    service = service,
+                    onRecipesLoaded = { loadedRecipes ->
+                        recipesState = loadedRecipes
+                        navController.navigate("recipes") {
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        )
-        {
-            OutlinedTextField(
-                value = currentInput, onValueChange = { currentInput = it },
-                label = { Text("Add ingredient") },
-                modifier = Modifier.weight(1f)
-            )
-            Button(onClick = {
-                if (currentInput.isNotBlank()) {
-                    ingredientList = ingredientList + currentInput
-                    currentInput = ""
-                }
-            })
-            {
-                Icon(Icons.Default.Add, contentDescription = "Add")
+            composable("recipes") {
+                RecipeListScreen(
+                    recipes = recipesState,
+                    onRecipeClick = { recipe ->
+                        selectedRecipe = recipe
+                        navController.navigate("recipeDetails")
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable("recipeDetails") {
+                RecipeDetailsScreen(
+                    recipe = selectedRecipe,
+                    service = service,
+                    onBack = { navController.popBackStack() }
+                )
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(16.dp))
+    // Allows user to add ingredients and retrieve recipes
+    @Composable
+    fun PantryScreen(service: RecipeClient, onRecipesLoaded: (List<Recipe>) -> Unit) {
+        var ingredientList by remember { mutableStateOf(listOf<String>()) }
+        var currentInput by remember { mutableStateOf("") }
+        val scope = rememberCoroutineScope()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "My Pantry",
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.headlineSmall,
+                textAlign = TextAlign.Center
+            )
 
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            items(ingredientList) { ingredient ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    elevation = CardDefaults.cardElevation(2.dp)
-                ) {
-                    Row(
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            )
+            {
+                OutlinedTextField(
+                    value = currentInput, onValueChange = { currentInput = it },
+                    label = { Text("Add ingredient") },
+                    modifier = Modifier.weight(1f)
+                )
+                Button(onClick = {
+                    if (currentInput.isNotBlank()) {
+                        ingredientList = ingredientList + currentInput
+                        currentInput = ""
+                    }
+                })
+                {
+                    Icon(Icons.Default.Add, contentDescription = "Add")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(ingredientList) { ingredient ->
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = 4.dp),
+                        elevation = CardDefaults.cardElevation(2.dp)
                     ) {
-                        Text(
-                            text = ingredient,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-
-                        IconButton(onClick = {
-                            ingredientList = ingredientList.filter { it != ingredient }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Remove ingredient",
-                                tint = MaterialTheme.colorScheme.error
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = ingredient,
+                                style = MaterialTheme.typography.bodyLarge
                             )
+
+                            IconButton(onClick = {
+                                ingredientList = ingredientList.filter { it != ingredient }
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Remove ingredient",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
-        Button(
-            onClick = {
-                scope.launch {
-                    try {
-                        val ingredientsQuery = ingredientList
-                            .filter { it.isNotBlank() }
-                            .joinToString(",") { it.trim() }
-                        val result = service.searchRecipes(ingredientsQuery)
-                        Log.d("pantryApp", "Loaded recipes count: ${result.results.size}")
-                        onRecipesLoaded(result.results)
-                    } catch (e: Exception) {
-                        Log.e("PantryApp", "Error fetching recipes", e)
+            Button(
+                onClick = {
+                    scope.launch {
+                        try {
+                            val ingredientsQuery = ingredientList
+                                .filter { it.isNotBlank() }
+                                .joinToString(",") { it.trim() }
+                            val result = service.searchRecipes(ingredientsQuery)
+                            Log.d("pantryApp", "Loaded recipes count: ${result.results.size}")
+                            onRecipesLoaded(result.results)
+                        } catch (e: Exception) {
+                            Log.e("PantryApp", "Error fetching recipes", e)
+                        }
                     }
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 16.dp)
-        ) {
-            Text("Find Recipes")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp)
+            ) {
+                Text("Find Recipes")
+            }
         }
     }
-}
 
-@Composable
-fun RecipeListScreen(
-    recipes: List<Recipe>,
-    onBack: () -> Unit
-) {
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
+    // Displays a list of clickable recipes and used/missed ingredients
+    @Composable
+    fun RecipeListScreen(
+        recipes: List<Recipe>,
+        onRecipeClick: (Recipe) -> Unit,
+        onBack: () -> Unit
     ) {
-        Text(
-            text = "Recipes",
-            style = MaterialTheme.typography.headlineSmall,
+        Column(
             modifier = Modifier
-                .padding(all = 12.dp)
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "Recipes",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier
+                    .padding(all = 12.dp)
+            )
 
-        )
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            items(recipes) { recipe ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = recipe.title,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-                        if (recipe.usedIngredients.isNotEmpty()) {
-                            val usedNames = recipe.usedIngredients.joinToString(", ") { it.name }
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(recipes) { recipe ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        onClick = { onRecipeClick(recipe) }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "Have: $usedNames",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
+                                text = recipe.title,
+                                style = MaterialTheme.typography.titleMedium
                             )
-                        }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (recipe.missedIngredients.isNotEmpty()) {
-                            val missedNames =
-                                recipe.missedIngredients.joinToString(", ") { it.name }
-                            Text(
-                                text = "Missing: $missedNames",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            if (recipe.usedIngredients.isNotEmpty()) {
+                                val usedNames =
+                                    recipe.usedIngredients.joinToString(", ") { it.name }
+                                Text(
+                                    text = "Have: $usedNames",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (recipe.missedIngredients.isNotEmpty()) {
+                                val missedNames =
+                                    recipe.missedIngredients.joinToString(", ") { it.name }
+                                Text(
+                                    text = "Missing: $missedNames",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
                 }
             }
+
+            Button(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Back to Pantry")
+            }
+        }
+    }
+
+    // Retrieves and displays full recipe instructions
+    @Composable
+    fun RecipeDetailsScreen(
+        recipe: Recipe?,
+        service: RecipeClient,
+        onBack: () -> Unit
+    ) {
+        var fullRecipe by remember { mutableStateOf<Recipe?>(null) }
+        var isLoading by remember { mutableStateOf(true) }
+
+        LaunchedEffect(recipe?.id) {
+            recipe?.let {
+                try {
+                    fullRecipe = service.getRecipeInstructions(it.id)
+                } catch (e: Exception) {
+                    error("Failed to load recipe instructions")
+                } finally {
+                    isLoading = false
+                }
+            }
         }
 
-        Button(
-            onClick = onBack,
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(16.dp)
         ) {
-            Text("Back to Pantry")
+
+            Text(
+                text = fullRecipe?.title ?: recipe?.title ?: "Loading...",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+
+                Text(
+                    text = "Instructions",
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                when {
+                    isLoading -> Text("Loading instructions...")
+                    fullRecipe?.instructions.isNullOrBlank() -> Text("No instructions available")
+                    else -> Text(
+                        text = fullRecipe!!.instructions!!,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
+            Button(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Back to List")
+            }
         }
     }
 }
